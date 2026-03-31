@@ -280,21 +280,37 @@ bool IsBlockSolid(int x, int y, int z) {
 }
 
 void UpdatePlayer(float dt) {
-    // Rotation
+    // --- Rotation (Mouse + Right Stick) ---
     Vector2 mouseDelta = GetMouseDelta();
     player.yaw -= mouseDelta.x * 0.1f;
     player.pitch -= mouseDelta.y * 0.1f;
+
+    if (IsGamepadAvailable(0)) {
+        float rx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+        float ry = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y);
+        if (fabsf(rx) > 0.1f) player.yaw -= rx * 2.0f;
+        if (fabsf(ry) > 0.1f) player.pitch -= ry * 2.0f;
+    }
+
     if (player.pitch > 89) player.pitch = 89;
     if (player.pitch < -89) player.pitch = -89;
 
-    // Movement
+    // --- Movement (WASD + Left Stick) ---
     Vector3 forward = (Vector3){ sinf(player.yaw * DEG2RAD), 0, cosf(player.yaw * DEG2RAD) };
     Vector3 right = (Vector3){ cosf(player.yaw * DEG2RAD), 0, -sinf(player.yaw * DEG2RAD) };
     Vector3 move = { 0 };
+    
     if (IsKeyDown(KEY_W)) move = Vector3Add(move, forward);
     if (IsKeyDown(KEY_S)) move = Vector3Subtract(move, forward);
     if (IsKeyDown(KEY_A)) move = Vector3Subtract(move, right);
     if (IsKeyDown(KEY_D)) move = Vector3Add(move, right);
+
+    if (IsGamepadAvailable(0)) {
+        float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+        float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+        if (fabsf(lx) > 0.1f) move = Vector3Add(move, Vector3Scale(right, lx));
+        if (fabsf(ly) > 0.1f) move = Vector3Subtract(move, Vector3Scale(forward, ly));
+    }
     
     if (Vector3Length(move) > 0.1f) {
         move = Vector3Scale(Vector3Normalize(move), WALK_SPEED * dt);
@@ -304,7 +320,7 @@ void UpdatePlayer(float dt) {
         if (IsBlockSolid(player.pos.x, player.pos.y, player.pos.z + (move.z > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS))) player.pos.z -= move.z;
     }
 
-    // Gravity
+    // --- Gravity & Jumping ---
     player.vel.y += GRAVITY * dt;
     player.pos.y += player.vel.y * dt;
     
@@ -316,14 +332,18 @@ void UpdatePlayer(float dt) {
         player.grounded = false;
     }
 
-    if (player.grounded && IsKeyPressed(KEY_SPACE)) {
+    if (player.grounded && (IsKeyPressed(KEY_SPACE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))) {
         player.vel.y = JUMP_FORCE;
     }
 
-    // Block Selection
+    // --- Block Selection ---
     for (int i = 0; i < 9; i++) {
         if (IsKeyPressed(KEY_ONE + i)) player.selected_block = i + 1;
     }
+    if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) player.selected_block--;
+    if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) player.selected_block++;
+    
+    if (player.selected_block < 1) player.selected_block = BLOCK_COUNT - 1;
     if (player.selected_block >= BLOCK_COUNT) player.selected_block = 1;
 
     // Hunger
@@ -399,7 +419,7 @@ int main() {
         camera.target = Vector3Add(camera.position, forward);
 
         // Interaction
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
             Vector3 rayPos = camera.position;
             Vector3 rayDir = forward;
             for(float d=0; d<5.0f; d+=0.1f) {
@@ -420,7 +440,7 @@ int main() {
             }
         }
         
-        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
             Vector3 rayPos = camera.position;
             Vector3 rayDir = forward;
             Vector3 prevP = rayPos;

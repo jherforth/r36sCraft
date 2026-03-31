@@ -10,13 +10,23 @@ A ruthlessly optimized voxel game written in C using raylib 5.0. Designed to run
 - **Low RAM Usage:** Designed to stay under 350MB RAM with 10+ chunks loaded.
 
 ## Controls
+### Keyboard & Mouse
 - **WASD:** Move
 - **Mouse:** Look
 - **Space:** Jump
 - **Left Click:** Break Block
-- **Right Click:** Place Block (Coming soon in next update)
+- **Right Click:** Place Block
 - **1-9:** Select block type
 - **ESC:** Exit
+
+### R36S / Handheld Gamepad
+- **Left Stick:** Move
+- **Right Stick:** Look
+- **A Button:** Jump
+- **R2 (Right Trigger):** Break Block
+- **L2 (Left Trigger):** Place Block
+- **L1 / R1:** Cycle through block types
+- **Start + Select:** Exit (Standard ArkOS shortcut)
 
 ## Compilation
 To compile for an ARM device (Linux):
