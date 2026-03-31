@@ -3,7 +3,19 @@
 # Optimized for low-end ARM devices (e.g. R36S, RG351P)
 
 CC=gcc
-CFLAGS="-O3 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -ffast-math"
+ARCH=$(uname -m)
+
+if [[ $ARCH == armv7* ]]; then
+    echo "ARMv7 detected. Applying specific optimizations."
+    CFLAGS="-O3 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -ffast-math"
+elif [[ $ARCH == aarch64 ]]; then
+    echo "AArch64 detected. Applying generic ARM optimizations."
+    CFLAGS="-O3 -ffast-math"
+else
+    echo "Non-ARM architecture ($ARCH) detected. Using generic optimizations."
+    CFLAGS="-O3 -ffast-math"
+fi
+
 LIBS="-lraylib -lGL -lm -lpthread -ldl -lrt -lX11"
 
 echo "Compiling r36sCraft..."
