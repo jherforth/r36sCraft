@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "r36sCraft",
+  "items": [
+    "r36scraft.sh",
+    "r36scraft/"
+  ],
+  "attr": {
+    "title": "r36sCraft",
+    "desc": "A ruthlessly optimized voxel survival game for low-RAM ARM devices.",
+    "inst": "WASD/Sticks to move, Space/A to jump, LMB/R2 to break, RMB/L2 to place.",
+    "genres": [
+      "action",
+      "adventure"
+    ],
+    "image": null,
+    "porter": "AI Studio",
+    "arch": [
+      "aarch64",
+      "armhf"
+    ]
+  }
+}

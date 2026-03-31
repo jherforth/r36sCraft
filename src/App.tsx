@@ -7,7 +7,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#151619] text-white p-8 font-mono">
       <div className="max-w-3xl mx-auto border border-[#8E9299] p-8 rounded-lg shadow-2xl">
-        <h1 className="text-4xl font-bold mb-4 text-[#FF4444]">ARM Voxel Survival</h1>
+        <h1 className="text-4xl font-bold mb-4 text-[#FF4444]">r36sCraft</h1>
         <p className="text-[#8E9299] mb-6 italic">
           Ruthlessly optimized C + Raylib voxel engine for low-RAM ARM devices.
         </p>

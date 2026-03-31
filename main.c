@@ -356,7 +356,7 @@ void UpdatePlayer(float dt) {
 
 // --- Main ---
 int main() {
-    InitWindow(800, 480, "ARM Voxel Survival");
+    InitWindow(800, 480, "r36sCraft");
     SetTargetFPS(30);
     DisableCursor();
 

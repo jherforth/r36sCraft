@@ -1,4 +1,4 @@
-# ARM-Voxel-Survival
+# r36sCraft
 
 A ruthlessly optimized voxel game written in C using raylib 5.0. Designed to run on low-RAM ARM devices (<= 500MB RAM) like the R36S or RG351 series.
 
@@ -36,6 +36,14 @@ To compile for an ARM device (Linux):
    chmod +x build.sh
    ./build.sh
    ```
+
+## PortMaster Installation (R36S / Handhelds)
+1.  **Compile the game** on your ARM device (or cross-compile) using `./build.sh`.
+2.  **Locate the `port_package/` folder** created by the build script.
+3.  **Copy the files** to your SD card:
+    -   Copy `r36scraft.sh` to `/roms/ports/`
+    -   Copy the `r36scraft/` folder to `/roms/ports/`
+4.  **Restart your device** and find "r36sCraft" in the Ports menu.
 
 ## Optimization Notes
 - **Chunk Size:** 16x16x128.
