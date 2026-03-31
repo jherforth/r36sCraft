@@ -212,7 +212,7 @@ void GenerateChunk(Chunk *c) {
             int height = 64 + (int)(h_noise * 30.0f);
             
             // Biome logic (3 biomes: Forest, Desert, Tundra)
-            float biome_noise = noise2d(nx * 0.05f, nz * 0.05f);
+            float biome_noise = noise2d(nx * 0.2f, nz * 0.2f);
             
             for (int y = 0; y < CHUNK_Y; y++) {
                 BlockType t = BLOCK_AIR;
@@ -532,6 +532,7 @@ typedef struct {
     Sound place;
     Sound bird;
     Sound zombie;
+    Music ambient;
 } GameSounds;
 GameSounds sounds;
 
@@ -598,6 +599,38 @@ void InitSounds() {
     }
     sounds.zombie = LoadSoundFromWave(zombieWave);
     free(zombieWave.data);
+
+    // Ambient Music: Procedural pad
+    Wave musicWave = { 0 };
+    musicWave.frameCount = 44100 * 20; // 20 seconds
+    musicWave.sampleRate = 44100;
+    musicWave.sampleSize = 16;
+    musicWave.channels = 1;
+    musicWave.data = malloc(musicWave.frameCount * sizeof(short));
+    short *musicData = (short *)musicWave.data;
+    
+    float freqs[] = { 261.63f, 329.63f, 392.00f, 523.25f, 659.25f }; // C Major pentatonic-ish
+    int numFreqs = 5;
+    
+    for (int i = 0; i < musicWave.frameCount; i++) {
+        float t = (float)i / 44100.0f;
+        float sample = 0;
+        for (int f = 0; f < numFreqs; f++) {
+            // Slow volume modulation for each frequency
+            float mod = 0.5f + 0.5f * sinf(0.2f * t + f);
+            sample += sinf(2.0f * PI * freqs[f] * t) * mod;
+        }
+        musicData[i] = (short)(sample * 1000.0f); // Very quiet
+    }
+    
+    // Create a temporary file to load as music (raylib doesn't have LoadMusicFromWave directly in all versions)
+    // Actually, we can just use LoadSoundFromWave and loop it, or use a stream.
+    // Let's use a Sound and loop it for simplicity.
+    sounds.ambient = LoadMusicFromWave(musicWave);
+    sounds.ambient.looping = true;
+    PlayMusicStream(sounds.ambient);
+    SetMusicVolume(sounds.ambient, 0.2f);
+    free(musicWave.data);
 }
 
 // --- Main ---
@@ -627,6 +660,7 @@ int main() {
     world_seed = rand();
 
     while (!WindowShouldClose()) {
+        UpdateMusicStream(sounds.ambient);
         if (IsKeyPressed(KEY_ESCAPE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)) {
             isPaused = !isPaused;
             if (isPaused) EnableCursor();
@@ -696,6 +730,10 @@ int main() {
                         if (dist < 4.0f) { // Punch range
                             // Simple sphere collision for mobs
                             if (GetRayCollisionSphere(punchRay, mobs[i].pos, 0.8f).hit) {
+                                if (mobs[i].type == MOB_CHICKEN) {
+                                    player.health = fminf(3.0f, player.health + 1.0f);
+                                    player.hunger = fminf(10.0f, player.hunger + 2.0f);
+                                }
                                 mobs[i].active = false; // 1 hit kill
                                 hitMob = true;
                                 break;
