@@ -15,6 +15,11 @@
 #include <time.h>
 #include <string.h>
 
+// Fix for raygui on some raylib versions
+#ifndef TextToFloat
+#define TextToFloat(text) (float)atof(text)
+#endif
+
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
