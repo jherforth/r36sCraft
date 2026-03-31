@@ -17,9 +17,20 @@ if [ $? -eq 0 ]; then
     cp r36scraft port_package/r36scraft/
     cp port.json port_package/r36scraft/
     cp r36scraft.sh port_package/
+    chmod +x port_package/r36scraft.sh
+    chmod +x port_package/r36scraft/r36scraft
     
     echo "PortMaster package created in 'port_package/' directory."
-    echo "To install: Copy 'r36scraft.sh' and 'r36scraft/' folder to your SD card's /roms/ports/ directory."
+    echo "To install: Copy the CONTENTS of 'port_package/' to your SD card's /roms/ports/ directory."
+    echo "The structure should be:"
+    echo "  /roms/ports/r36scraft.sh"
+    echo "  /roms/ports/r36scraft/r36scraft"
+    echo "  /roms/ports/r36scraft/port.json"
+    
+    if command -v zip >/dev/null 2>&1; then
+        cd port_package && zip -r ../r36scraft.zip . && cd ..
+        echo "Created r36scraft.zip for easy transfer."
+    fi
 else
     echo "Build failed."
 fi

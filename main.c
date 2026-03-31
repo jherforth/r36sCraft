@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <string.h>
 
 // --- Constants ---
 #define CHUNK_X 16
