@@ -41,6 +41,7 @@ typedef enum {
     BLOCK_SAND,
     BLOCK_WATER,
     BLOCK_GLOWSTONE,
+    BLOCK_SNOW,
     BLOCK_COUNT
 } BlockType;
 
@@ -127,6 +128,7 @@ Color GetBlockColor(BlockType type, int face) {
         case BLOCK_SAND: base = (Color){ 220, 200, 120, 255 }; break;
         case BLOCK_WATER: base = (Color){ 50, 100, 200, 150 }; break;
         case BLOCK_GLOWSTONE: base = (Color){ 255, 255, 150, 255 }; break;
+        case BLOCK_SNOW: base = (Color){ 240, 240, 255, 255 }; break;
         default: base = WHITE; break;
     }
 
@@ -140,26 +142,70 @@ Color GetBlockColor(BlockType type, int face) {
     return (Color){ (unsigned char)(base.r * factor), (unsigned char)(base.g * factor), (unsigned char)(base.b * factor), base.a };
 }
 
+// --- Persistence ---
+void SaveChunk(Chunk *c) {
+    char filename[64];
+    sprintf(filename, "chunk_%d_%d.dat", c->x, c->z);
+    FILE *f = fopen(filename, "wb");
+    if (f) {
+        fwrite(c->blocks, sizeof(Block), CHUNK_VOL, f);
+        fclose(f);
+    }
+}
+
+bool LoadChunk(Chunk *c) {
+    char filename[64];
+    sprintf(filename, "chunk_%d_%d.dat", c->x, c->z);
+    FILE *f = fopen(filename, "rb");
+    if (f) {
+        fread(c->blocks, sizeof(Block), CHUNK_VOL, f);
+        fclose(f);
+        c->loaded = true;
+        c->dirty = true;
+        return true;
+    }
+    return false;
+}
+
+void SavePlayer() {
+    FILE *f = fopen("player.dat", "wb");
+    if (f) {
+        fwrite(&player, sizeof(Player), 1, f);
+        fclose(f);
+    }
+}
+
+void LoadPlayer() {
+    FILE *f = fopen("player.dat", "rb");
+    if (f) {
+        fread(&player, sizeof(Player), 1, f);
+        fclose(f);
+    }
+}
+
 // --- World Generation ---
 void GenerateChunk(Chunk *c) {
+    if (LoadChunk(c)) return;
+
     for (int x = 0; x < CHUNK_X; x++) {
         for (int z = 0; z < CHUNK_Z; z++) {
-            float nx = (float)(c->x * CHUNK_X + x) * 0.02f;
-            float nz = (float)(c->z * CHUNK_Z + z) * 0.02f;
+            float nx = (float)(c->x * CHUNK_X + x) * 0.01f;
+            float nz = (float)(c->z * CHUNK_Z + z) * 0.01f;
             
             float h_noise = fbm2d(nx, nz, 4);
-            int height = 64 + (int)(h_noise * 40.0f);
+            int height = 64 + (int)(h_noise * 30.0f);
             
-            // Biome logic
-            float biome_noise = noise2d(nx * 0.1f, nz * 0.1f);
+            // Biome logic (3 biomes: Forest, Desert, Tundra)
+            float biome_noise = noise2d(nx * 0.05f, nz * 0.05f);
             
             for (int y = 0; y < CHUNK_Y; y++) {
                 BlockType t = BLOCK_AIR;
                 if (y < height - 4) t = BLOCK_STONE;
                 else if (y < height - 1) t = BLOCK_DIRT;
                 else if (y < height) {
-                    if (biome_noise > 0.6f) t = BLOCK_SAND;
-                    else t = BLOCK_GRASS;
+                    if (biome_noise > 0.7f) t = BLOCK_SAND; // Desert
+                    else if (biome_noise < 0.3f) t = BLOCK_SNOW; // Tundra
+                    else t = BLOCK_GRASS; // Forest
                 }
                 
                 if (y < 65 && t == BLOCK_AIR) t = BLOCK_WATER;
@@ -167,15 +213,19 @@ void GenerateChunk(Chunk *c) {
                 c->blocks[x + z * CHUNK_X + y * CHUNK_X * CHUNK_Z].type = t;
             }
             
-            // Simple Trees
-            if (biome_noise < 0.4f && hash(nx * 100 + nz) > 0.98f && height > 66) {
+            // Simple Trees (Forest and Tundra only)
+            if (biome_noise <= 0.7f && biome_noise >= 0.2f && hash(nx * 100 + nz) > 0.98f && height > 66) {
                 for(int ty=0; ty<4; ty++) c->blocks[x + z * CHUNK_X + (height+ty) * CHUNK_X * CHUNK_Z].type = BLOCK_WOOD;
                 for(int lx=-1; lx<=1; lx++) {
                     for(int lz=-1; lz<=1; lz++) {
                         for(int ly=0; ly<2; ly++) {
                             int ox = x+lx, oz = z+lz, oy = height+3+ly;
-                            if (ox >= 0 && ox < CHUNK_X && oz >= 0 && oz < CHUNK_Z && oy < CHUNK_Y)
-                                c->blocks[ox + oz * CHUNK_X + oy * CHUNK_X * CHUNK_Z].type = BLOCK_LEAVES;
+                            if (ox >= 0 && ox < CHUNK_X && oz >= 0 && oz < CHUNK_Z && oy < CHUNK_Y) {
+                                if (biome_noise < 0.3f)
+                                    c->blocks[ox + oz * CHUNK_X + oy * CHUNK_X * CHUNK_Z].type = BLOCK_SNOW;
+                                else
+                                    c->blocks[ox + oz * CHUNK_X + oy * CHUNK_X * CHUNK_Z].type = BLOCK_LEAVES;
+                            }
                         }
                     }
                 }
@@ -306,6 +356,14 @@ bool IsBlockSolid(int x, int y, int z) {
 }
 
 void UpdatePlayer(float dt) {
+    if (player.health <= 0) {
+        player.pos = (Vector3){ 0, 80, 0 };
+        player.health = 3.0f;
+        player.hunger = 10.0f;
+        player.vel = (Vector3){ 0, 0, 0 };
+        return;
+    }
+
     // --- Rotation (Mouse + Right Stick) ---
     Vector2 mouseDelta = GetMouseDelta();
     player.yaw -= mouseDelta.x * 0.1f;
@@ -360,6 +418,13 @@ void UpdatePlayer(float dt) {
     player.vel.y += GRAVITY * dt;
     player.pos.y += player.vel.y * dt;
     
+    // Hard Floor
+    if (player.pos.y < 1.0f) {
+        player.pos.y = 1.0f;
+        player.vel.y = 0;
+        player.grounded = true;
+    }
+
     if (IsBlockSolid(player.pos.x, player.pos.y, player.pos.z)) {
         player.pos.y = floorf(player.pos.y) + 1.0f;
         player.vel.y = 0;
@@ -440,7 +505,8 @@ void DrawHUD() {
 
     // Damage Flash
     if (player.damage_timer > 0) {
-        DrawRectangleLinesEx((Rectangle){0, 0, (float)sw, (float)sh}, 10, Fade(RED, player.damage_timer));
+        DrawRectangle(0, 0, sw, sh, Fade(RED, player.damage_timer * 0.5f));
+        DrawRectangleLinesEx((Rectangle){0, 0, (float)sw, (float)sh}, 20, Fade(RED, player.damage_timer));
     }
 }
 
@@ -450,12 +516,16 @@ int main() {
     SetTargetFPS(30);
     DisableCursor();
 
+    bool isPaused = false;
+
     // Init Player
     player.pos = (Vector3){ 0, 80, 0 };
     player.health = 3.0f;
     player.hunger = 10.0f;
     player.selected_block = 1;
     player.damage_timer = 0.0f;
+
+    LoadPlayer();
 
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0, 1, 0 };
@@ -466,160 +536,169 @@ int main() {
     world_seed = rand();
 
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
-        
-        // Chunk Management
-        int pcx = floorf(player.pos.x / CHUNK_X);
-        int pcz = floorf(player.pos.z / CHUNK_Z);
-        
-        for (int i = 0; i < MAX_CHUNKS; i++) {
-            int cx = pcx - RENDER_DIST + (i % WORLD_SIZE);
-            int cz = pcz - RENDER_DIST + (i / WORLD_SIZE);
-            
-            bool found = false;
-            for (int j = 0; j < MAX_CHUNKS; j++) {
-                if (chunks[j].loaded && chunks[j].x == cx && chunks[j].z == cz) {
-                    found = true;
-                    if (chunks[j].dirty) BuildChunkMesh(&chunks[j]);
-                    break;
-                }
-            }
-            
-            if (!found) {
-                // Find oldest/farthest chunk to reuse
-                int best_idx = -1;
-                float max_dist = -1;
-                for (int j = 0; j < MAX_CHUNKS; j++) {
-                    if (!chunks[j].loaded) { best_idx = j; break; }
-                    float d = Vector2Distance((Vector2){(float)chunks[j].x, (float)chunks[j].z}, (Vector2){(float)pcx, (float)pcz});
-                    if (d > max_dist) { max_dist = d; best_idx = j; }
-                }
-                if (best_idx != -1) {
-                    chunks[best_idx].x = cx;
-                    chunks[best_idx].z = cz;
-                    GenerateChunk(&chunks[best_idx]);
-                    BuildChunkMesh(&chunks[best_idx]);
-                }
-            }
+        if (IsKeyPressed(KEY_ESCAPE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)) {
+            isPaused = !isPaused;
+            if (isPaused) EnableCursor();
+            else DisableCursor();
         }
 
-        UpdatePlayer(dt);
-
-        // Camera update
-        camera.position = (Vector3){ player.pos.x, player.pos.y + PLAYER_HEIGHT, player.pos.z };
-        Vector3 forward = { cosf(player.pitch * DEG2RAD) * sinf(player.yaw * DEG2RAD),
-                           sinf(player.pitch * DEG2RAD),
-                           cosf(player.pitch * DEG2RAD) * cosf(player.yaw * DEG2RAD) };
-        camera.target = Vector3Add(camera.position, forward);
-
-        // Interaction
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
-            Vector3 rayPos = camera.position;
-            Vector3 rayDir = forward;
+        float dt = GetFrameTime();
+        
+        if (!isPaused) {
+            // Chunk Management
+            int pcx = floorf(player.pos.x / CHUNK_X);
+            int pcz = floorf(player.pos.z / CHUNK_Z);
             
-            // Punch Mobs
-            bool hitMob = false;
-            Ray punchRay = { rayPos, rayDir };
-            for (int i = 0; i < 32; i++) {
-                if (mobs[i].active) {
-                    float dist = Vector3Distance(rayPos, mobs[i].pos);
-                    if (dist < 4.0f) { // Punch range
-                        // Simple sphere collision for mobs
-                        if (GetRayCollisionSphere(punchRay, mobs[i].pos, 0.8f).hit) {
-                            mobs[i].active = false; // 1 hit kill
-                            hitMob = true;
+            for (int i = 0; i < MAX_CHUNKS; i++) {
+                int cx = pcx - RENDER_DIST + (i % WORLD_SIZE);
+                int cz = pcz - RENDER_DIST + (i / WORLD_SIZE);
+                
+                bool found = false;
+                for (int j = 0; j < MAX_CHUNKS; j++) {
+                    if (chunks[j].loaded && chunks[j].x == cx && chunks[j].z == cz) {
+                        found = true;
+                        if (chunks[j].dirty) BuildChunkMesh(&chunks[j]);
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    // Find oldest/farthest chunk to reuse
+                    int best_idx = -1;
+                    float max_dist = -1;
+                    for (int j = 0; j < MAX_CHUNKS; j++) {
+                        if (!chunks[j].loaded) { best_idx = j; break; }
+                        float d = Vector2Distance((Vector2){(float)chunks[j].x, (float)chunks[j].z}, (Vector2){(float)pcx, (float)pcz});
+                        if (d > max_dist) { max_dist = d; best_idx = j; }
+                    }
+                    if (best_idx != -1) {
+                        if (chunks[best_idx].loaded) SaveChunk(&chunks[best_idx]);
+                        chunks[best_idx].x = cx;
+                        chunks[best_idx].z = cz;
+                        GenerateChunk(&chunks[best_idx]);
+                        BuildChunkMesh(&chunks[best_idx]);
+                    }
+                }
+            }
+
+            UpdatePlayer(dt);
+
+            // Camera update
+            camera.position = (Vector3){ player.pos.x, player.pos.y + PLAYER_HEIGHT, player.pos.z };
+            Vector3 forward = { cosf(player.pitch * DEG2RAD) * sinf(player.yaw * DEG2RAD),
+                               sinf(player.pitch * DEG2RAD),
+                               cosf(player.pitch * DEG2RAD) * cosf(player.yaw * DEG2RAD) };
+            camera.target = Vector3Add(camera.position, forward);
+
+            // Interaction
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
+                Vector3 rayPos = camera.position;
+                Vector3 rayDir = forward;
+                
+                // Punch Mobs
+                bool hitMob = false;
+                Ray punchRay = { rayPos, rayDir };
+                for (int i = 0; i < 32; i++) {
+                    if (mobs[i].active) {
+                        float dist = Vector3Distance(rayPos, mobs[i].pos);
+                        if (dist < 4.0f) { // Punch range
+                            // Simple sphere collision for mobs
+                            if (GetRayCollisionSphere(punchRay, mobs[i].pos, 0.8f).hit) {
+                                mobs[i].active = false; // 1 hit kill
+                                hitMob = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!hitMob) {
+                    // Break block
+                    for(float d=0; d<5.0f; d+=0.1f) {
+                        Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
+                        int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
+                        if (IsBlockSolid(ix, iy, iz)) {
+                            int cx = floorf((float)ix / CHUNK_X);
+                            int cz = floorf((float)iz / CHUNK_Z);
+                            for(int i=0; i<MAX_CHUNKS; i++) {
+                                if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
+                                    chunks[i].blocks[(ix - cx*CHUNK_X) + (iz - cz*CHUNK_Z)*CHUNK_X + iy*CHUNK_X*CHUNK_Z].type = BLOCK_AIR;
+                                    chunks[i].dirty = true;
+                                    break;
+                                }
+                            }
                             break;
                         }
                     }
                 }
             }
-
-            if (!hitMob) {
-                // Break block
-                for(float d=0; d<5.0f; d+=0.1f) {
-                    Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
-                    int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
-                    if (IsBlockSolid(ix, iy, iz)) {
-                        int cx = floorf((float)ix / CHUNK_X);
-                        int cz = floorf((float)iz / CHUNK_Z);
-                        for(int i=0; i<MAX_CHUNKS; i++) {
-                            if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
-                                chunks[i].blocks[(ix - cx*CHUNK_X) + (iz - cz*CHUNK_Z)*CHUNK_X + iy*CHUNK_X*CHUNK_Z].type = BLOCK_AIR;
-                                chunks[i].dirty = true;
-                                break;
+            
+            if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
+                if (player.selected_block > 1) { // Slot 1 is Pickaxe
+                    Vector3 rayPos = camera.position;
+                    Vector3 rayDir = forward;
+                    Vector3 prevP = rayPos;
+                    for(float d=0; d<5.0f; d+=0.1f) {
+                        Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
+                        int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
+                        if (IsBlockSolid(ix, iy, iz)) {
+                            int px = floorf(prevP.x), py = floorf(prevP.y), pz = floorf(prevP.z);
+                            int cx = floorf((float)px / CHUNK_X);
+                            int cz = floorf((float)pz / CHUNK_Z);
+                            for(int i=0; i<MAX_CHUNKS; i++) {
+                                if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
+                                    chunks[i].blocks[(px - cx*CHUNK_X) + (pz - cz*CHUNK_Z)*CHUNK_X + py*CHUNK_X*CHUNK_Z].type = player.selected_block;
+                                    chunks[i].dirty = true;
+                                    break;
+                                }
                             }
+                            break;
                         }
-                        break;
+                        prevP = p;
                     }
                 }
             }
-        }
-        
-        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
-            if (player.selected_block > 1) { // Slot 1 is Pickaxe
-                Vector3 rayPos = camera.position;
-                Vector3 rayDir = forward;
-                Vector3 prevP = rayPos;
-                for(float d=0; d<5.0f; d+=0.1f) {
-                    Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
-                    int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
-                    if (IsBlockSolid(ix, iy, iz)) {
-                        int px = floorf(prevP.x), py = floorf(prevP.y), pz = floorf(prevP.z);
-                        int cx = floorf((float)px / CHUNK_X);
-                        int cz = floorf((float)pz / CHUNK_Z);
-                        for(int i=0; i<MAX_CHUNKS; i++) {
-                            if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
-                                chunks[i].blocks[(px - cx*CHUNK_X) + (pz - cz*CHUNK_Z)*CHUNK_X + py*CHUNK_X*CHUNK_Z].type = player.selected_block;
-                                chunks[i].dirty = true;
-                                break;
-                            }
+
+            // Mob Update
+            for (int i = 0; i < 32; i++) {
+                if (!mobs[i].active) {
+                    if (GetRandomValue(0, 1000) < 5) {
+                        mobs[i].active = true;
+                        // Reduce zombie rate to 10% (1/10 chance to be zombie, 9/10 chicken)
+                        mobs[i].type = (GetRandomValue(0, 9) == 0) ? MOB_ZOMBIE : MOB_CHICKEN;
+                        mobs[i].pos = (Vector3){ player.pos.x + GetRandomValue(-20, 20), 100, player.pos.z + GetRandomValue(-20, 20) };
+                        mobs[i].health = (mobs[i].type == MOB_CHICKEN) ? 3 : 4;
+                    }
+                    continue;
+                }
+                mobs[i].vel.y += GRAVITY * dt;
+                mobs[i].pos.y += mobs[i].vel.y * dt;
+                if (IsBlockSolid(mobs[i].pos.x, mobs[i].pos.y, mobs[i].pos.z)) {
+                    mobs[i].pos.y = floorf(mobs[i].pos.y) + 1.0f;
+                    mobs[i].vel.y = 0;
+                }
+                if (mobs[i].type == MOB_ZOMBIE) {
+                    Vector3 toPlayer = Vector3Subtract(player.pos, mobs[i].pos);
+                    float dist = Vector3Length(toPlayer);
+                    if (dist < 20.0f) {
+                        toPlayer.y = 0;
+                        mobs[i].pos = Vector3Add(mobs[i].pos, Vector3Scale(Vector3Normalize(toPlayer), 2.0f * dt));
+                        
+                        // Damage player on contact
+                        if (dist < 1.2f && player.damage_timer <= 0) {
+                            player.health -= 1.0f;
+                            player.damage_timer = 0.5f;
                         }
-                        break;
                     }
-                    prevP = p;
+                } else {
+                    mobs[i].pos.x += sinf(GetTime() + i) * dt;
+                    mobs[i].pos.z += cosf(GetTime() + i) * dt;
                 }
+                if (Vector3Distance(player.pos, mobs[i].pos) > 50.0f) mobs[i].active = false;
             }
-        }
 
-        // Mob Update
-        for (int i = 0; i < 32; i++) {
-            if (!mobs[i].active) {
-                if (GetRandomValue(0, 1000) < 5) {
-                    mobs[i].active = true;
-                    // Reduce zombie rate to 10% (1/10 chance to be zombie, 9/10 chicken)
-                    mobs[i].type = (GetRandomValue(0, 9) == 0) ? MOB_ZOMBIE : MOB_CHICKEN;
-                    mobs[i].pos = (Vector3){ player.pos.x + GetRandomValue(-20, 20), 100, player.pos.z + GetRandomValue(-20, 20) };
-                    mobs[i].health = (mobs[i].type == MOB_CHICKEN) ? 3 : 4;
-                }
-                continue;
-            }
-            mobs[i].vel.y += GRAVITY * dt;
-            mobs[i].pos.y += mobs[i].vel.y * dt;
-            if (IsBlockSolid(mobs[i].pos.x, mobs[i].pos.y, mobs[i].pos.z)) {
-                mobs[i].pos.y = floorf(mobs[i].pos.y) + 1.0f;
-                mobs[i].vel.y = 0;
-            }
-            if (mobs[i].type == MOB_ZOMBIE) {
-                Vector3 toPlayer = Vector3Subtract(player.pos, mobs[i].pos);
-                float dist = Vector3Length(toPlayer);
-                if (dist < 20.0f) {
-                    toPlayer.y = 0;
-                    mobs[i].pos = Vector3Add(mobs[i].pos, Vector3Scale(Vector3Normalize(toPlayer), 2.0f * dt));
-                    
-                    // Damage player on contact
-                    if (dist < 1.2f && player.damage_timer <= 0) {
-                        player.health -= 1.0f;
-                        player.damage_timer = 0.5f;
-                    }
-                }
-            } else {
-                mobs[i].pos.x += sinf(GetTime() + i) * dt;
-                mobs[i].pos.z += cosf(GetTime() + i) * dt;
-            }
-            if (Vector3Distance(player.pos, mobs[i].pos) > 50.0f) mobs[i].active = false;
+            if (player.damage_timer > 0) player.damage_timer -= dt;
         }
-
-        if (player.damage_timer > 0) player.damage_timer -= dt;
 
         BeginDrawing();
             ClearBackground(SKYBLUE);
@@ -631,11 +710,16 @@ int main() {
                 }
                 
                 // Selection Box
-                for(float d=0; d<5.0f; d+=0.1f) {
-                    Vector3 p = Vector3Add(camera.position, Vector3Scale(forward, d));
-                    if (IsBlockSolid(floorf(p.x), floorf(p.y), floorf(p.z))) {
-                        DrawCubeWires((Vector3){floorf(p.x) + 0.5f, floorf(p.y) + 0.5f, floorf(p.z) + 0.5f}, 1.01f, 1.01f, 1.01f, BLACK);
-                        break;
+                if (!isPaused) {
+                    Vector3 forward = { cosf(player.pitch * DEG2RAD) * sinf(player.yaw * DEG2RAD),
+                                       sinf(player.pitch * DEG2RAD),
+                                       cosf(player.pitch * DEG2RAD) * cosf(player.yaw * DEG2RAD) };
+                    for(float d=0; d<5.0f; d+=0.1f) {
+                        Vector3 p = Vector3Add(camera.position, Vector3Scale(forward, d));
+                        if (IsBlockSolid(floorf(p.x), floorf(p.y), floorf(p.z))) {
+                            DrawCubeWires((Vector3){floorf(p.x) + 0.5f, floorf(p.y) + 0.5f, floorf(p.z) + 0.5f}, 1.01f, 1.01f, 1.01f, BLACK);
+                            break;
+                        }
                     }
                 }
 
@@ -656,7 +740,27 @@ int main() {
 
             DrawHUD();
             DrawFPS(10, 10);
+
+            if (isPaused) {
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), (Color){ 0, 0, 0, 100 });
+                DrawText("PAUSED", GetScreenWidth() / 2 - 50, GetScreenHeight() / 2 - 40, 30, WHITE);
+                
+                if (GuiButton((Rectangle){ (float)GetScreenWidth() / 2 - 60, (float)GetScreenHeight() / 2, 120, 30 }, "RESUME")) {
+                    isPaused = false;
+                    DisableCursor();
+                }
+                
+                if (GuiButton((Rectangle){ (float)GetScreenWidth() / 2 - 60, (float)GetScreenHeight() / 2 + 40, 120, 30 }, "EXIT")) {
+                    break;
+                }
+            }
         EndDrawing();
+    }
+
+    // Save on exit
+    SavePlayer();
+    for (int i = 0; i < MAX_CHUNKS; i++) {
+        if (chunks[i].loaded) SaveChunk(&chunks[i]);
     }
 
     CloseWindow();
