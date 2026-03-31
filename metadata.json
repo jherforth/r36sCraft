@@ -1,0 +1,5 @@
+{
+  "name": "ARM-Voxel-Survival",
+  "description": "Ultra-optimized C/Raylib voxel game for low-RAM ARM devices.",
+  "requestFramePermissions": []
+}
