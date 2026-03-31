@@ -28,14 +28,23 @@ A ruthlessly optimized voxel game written in C using raylib 5.0. Designed to run
 - **L1 / R1:** Cycle through block types
 - **Start + Select:** Exit (Standard ArkOS shortcut)
 
-## Compilation
-To compile for an ARM device (Linux):
-1. Ensure `raylib` 5.0+ is installed.
-2. Run the build script:
-   ```bash
-   chmod +x build.sh
-   ./build.sh
-   ```
+## Compilation & Setup
+To build **r36sCraft** on a Linux (Ubuntu/Debian) system, run the following commands:
+
+```bash
+# Install dependencies
+sudo apt update
+sudo apt install -y build-essential git cmake libraylib-dev \
+    libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+    libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev \
+    libxinerama-dev libwayland-dev libxkbcommon-dev
+
+# Build the project
+chmod +x build.sh
+./build.sh
+```
+
+> **Note:** If building on a standard PC (non-ARM), remove `-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard` from `build.sh`.
 
 ## PortMaster Installation (R36S / Handhelds)
 1.  **Compile the game** on your ARM device (or cross-compile) using `./build.sh`.
