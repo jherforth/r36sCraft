@@ -66,6 +66,7 @@ typedef struct {
     float hunger;
     int selected_block;
     bool grounded;
+    float damage_timer;
 } Player;
 
 typedef enum { MOB_CHICKEN, MOB_ZOMBIE } MobType;
@@ -222,6 +223,19 @@ void BuildChunkMesh(Chunk *c) {
 
                     if (draw) {
                         Color col = GetBlockColor(t, f);
+                        
+                        // Add detail: jitter color based on block position
+                        float jitter = (float)((x ^ z ^ y) % 10) / 100.0f;
+                        col.r = (unsigned char)fmaxf(0, fminf(255, col.r + jitter * 255));
+                        col.g = (unsigned char)fmaxf(0, fminf(255, col.g + jitter * 255));
+                        col.b = (unsigned char)fmaxf(0, fminf(255, col.b + jitter * 255));
+
+                        // Vertical gradient for more detail
+                        float grad = 0.9f + (float)(y % 4) * 0.05f;
+                        col.r = (unsigned char)fminf(255, col.r * grad);
+                        col.g = (unsigned char)fminf(255, col.g * grad);
+                        col.b = (unsigned char)fminf(255, col.b * grad);
+
                         // Add 2 triangles (6 vertices)
                         // This is face culling. True greedy merging would combine these.
                         // For brevity and reliability in a single file, we do face culling.
@@ -416,8 +430,18 @@ void DrawHUD() {
     for (int i = 0; i < 3; i++) {
         DrawText("♥", 20 + i * 25, sh - 60, 30, (i < player.health) ? RED : DARKGRAY);
     }
+    
+    // Health Bar
+    DrawRectangle(20, sh - 75, 100, 10, DARKGRAY);
+    DrawRectangle(20, sh - 75, (int)(player.health * 33.3f), 10, RED);
+
     DrawRectangle(20, sh - 30, 100, 10, DARKGRAY);
     DrawRectangle(20, sh - 30, (int)player.hunger * 10, 10, ORANGE);
+
+    // Damage Flash
+    if (player.damage_timer > 0) {
+        DrawRectangleLinesEx((Rectangle){0, 0, (float)sw, (float)sh}, 10, Fade(RED, player.damage_timer));
+    }
 }
 
 // --- Main ---
@@ -431,6 +455,7 @@ int main() {
     player.health = 3.0f;
     player.hunger = 10.0f;
     player.selected_block = 1;
+    player.damage_timer = 0.0f;
 
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0, 1, 0 };
@@ -491,20 +516,41 @@ int main() {
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
             Vector3 rayPos = camera.position;
             Vector3 rayDir = forward;
-            for(float d=0; d<5.0f; d+=0.1f) {
-                Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
-                int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
-                if (IsBlockSolid(ix, iy, iz)) {
-                    int cx = floorf((float)ix / CHUNK_X);
-                    int cz = floorf((float)iz / CHUNK_Z);
-                    for(int i=0; i<MAX_CHUNKS; i++) {
-                        if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
-                            chunks[i].blocks[(ix - cx*CHUNK_X) + (iz - cz*CHUNK_Z)*CHUNK_X + iy*CHUNK_X*CHUNK_Z].type = BLOCK_AIR;
-                            chunks[i].dirty = true;
+            
+            // Punch Mobs
+            bool hitMob = false;
+            Ray punchRay = { rayPos, rayDir };
+            for (int i = 0; i < 32; i++) {
+                if (mobs[i].active) {
+                    float dist = Vector3Distance(rayPos, mobs[i].pos);
+                    if (dist < 4.0f) { // Punch range
+                        // Simple sphere collision for mobs
+                        if (CheckCollisionRaySphere(punchRay, mobs[i].pos, 0.8f, NULL)) {
+                            mobs[i].active = false; // 1 hit kill
+                            hitMob = true;
                             break;
                         }
                     }
-                    break;
+                }
+            }
+
+            if (!hitMob) {
+                // Break block
+                for(float d=0; d<5.0f; d+=0.1f) {
+                    Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
+                    int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
+                    if (IsBlockSolid(ix, iy, iz)) {
+                        int cx = floorf((float)ix / CHUNK_X);
+                        int cz = floorf((float)iz / CHUNK_Z);
+                        for(int i=0; i<MAX_CHUNKS; i++) {
+                            if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
+                                chunks[i].blocks[(ix - cx*CHUNK_X) + (iz - cz*CHUNK_Z)*CHUNK_X + iy*CHUNK_X*CHUNK_Z].type = BLOCK_AIR;
+                                chunks[i].dirty = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -540,7 +586,8 @@ int main() {
             if (!mobs[i].active) {
                 if (GetRandomValue(0, 1000) < 5) {
                     mobs[i].active = true;
-                    mobs[i].type = (GetRandomValue(0, 1) == 0) ? MOB_CHICKEN : MOB_ZOMBIE;
+                    // Reduce zombie rate to 10% (1/10 chance to be zombie, 9/10 chicken)
+                    mobs[i].type = (GetRandomValue(0, 9) == 0) ? MOB_ZOMBIE : MOB_CHICKEN;
                     mobs[i].pos = (Vector3){ player.pos.x + GetRandomValue(-20, 20), 100, player.pos.z + GetRandomValue(-20, 20) };
                     mobs[i].health = (mobs[i].type == MOB_CHICKEN) ? 3 : 4;
                 }
@@ -554,10 +601,16 @@ int main() {
             }
             if (mobs[i].type == MOB_ZOMBIE) {
                 Vector3 toPlayer = Vector3Subtract(player.pos, mobs[i].pos);
-                if (Vector3Length(toPlayer) < 20.0f) {
+                float dist = Vector3Length(toPlayer);
+                if (dist < 20.0f) {
                     toPlayer.y = 0;
                     mobs[i].pos = Vector3Add(mobs[i].pos, Vector3Scale(Vector3Normalize(toPlayer), 2.0f * dt));
-                    if (Vector3Length(toPlayer) < 1.0f) player.health -= 1.0f * dt;
+                    
+                    // Damage player on contact
+                    if (dist < 1.2f && player.damage_timer <= 0) {
+                        player.health -= 1.0f;
+                        player.damage_timer = 0.5f;
+                    }
                 }
             } else {
                 mobs[i].pos.x += sinf(GetTime() + i) * dt;
@@ -565,6 +618,8 @@ int main() {
             }
             if (Vector3Distance(player.pos, mobs[i].pos) > 50.0f) mobs[i].active = false;
         }
+
+        if (player.damage_timer > 0) player.damage_timer -= dt;
 
         BeginDrawing();
             ClearBackground(SKYBLUE);
