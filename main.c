@@ -212,7 +212,7 @@ void GenerateChunk(Chunk *c) {
             int height = 64 + (int)(h_noise * 30.0f);
             
             // Biome logic (3 biomes: Forest, Desert, Tundra)
-            float biome_noise = noise2d(nx * 0.2f, nz * 0.2f);
+            float biome_noise = noise2d(nx * 1.5f, nz * 1.5f);
             
             for (int y = 0; y < CHUNK_Y; y++) {
                 BlockType t = BLOCK_AIR;
@@ -810,7 +810,19 @@ int main() {
                     float dist = Vector3Length(toPlayer);
                     if (dist < 20.0f) {
                         toPlayer.y = 0;
-                        mobs[i].pos = Vector3Add(mobs[i].pos, Vector3Scale(Vector3Normalize(toPlayer), 2.0f * dt));
+                        Vector3 nextPos = Vector3Add(mobs[i].pos, Vector3Scale(Vector3Normalize(toPlayer), 2.0f * dt));
+                        
+                        // Collision check for Zombie
+                        if (!IsBlockSolid(nextPos.x, nextPos.y, nextPos.z) && 
+                            !IsBlockSolid(nextPos.x, nextPos.y + 1.0f, nextPos.z)) {
+                            mobs[i].pos = nextPos;
+                        } else {
+                            // Try to step up if it's a 1-block obstacle
+                            if (!IsBlockSolid(nextPos.x, nextPos.y + 1.0f, nextPos.z) && 
+                                !IsBlockSolid(nextPos.x, nextPos.y + 2.0f, nextPos.z)) {
+                                mobs[i].pos = (Vector3){ nextPos.x, nextPos.y + 1.0f, nextPos.z };
+                            }
+                        }
                         
                         // Damage player on contact
                         if (dist < 1.2f && player.damage_timer <= 0) {
@@ -824,8 +836,12 @@ int main() {
                         }
                     }
                 } else {
-                    mobs[i].pos.x += sinf(GetTime() + i) * dt;
-                    mobs[i].pos.z += cosf(GetTime() + i) * dt;
+                    float nextX = mobs[i].pos.x + sinf(GetTime() + i) * dt;
+                    float nextZ = mobs[i].pos.z + cosf(GetTime() + i) * dt;
+                    if (!IsBlockSolid(nextX, mobs[i].pos.y, nextZ)) {
+                        mobs[i].pos.x = nextX;
+                        mobs[i].pos.z = nextZ;
+                    }
                 }
                 if (Vector3Distance(player.pos, mobs[i].pos) > 50.0f) mobs[i].active = false;
             }
