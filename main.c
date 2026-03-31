@@ -15,6 +15,9 @@
 #include <time.h>
 #include <string.h>
 
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
+
 // --- Constants ---
 #define CHUNK_X 16
 #define CHUNK_Z 16
@@ -158,11 +161,13 @@ bool LoadChunk(Chunk *c) {
     sprintf(filename, "chunk_%d_%d.dat", c->x, c->z);
     FILE *f = fopen(filename, "rb");
     if (f) {
-        fread(c->blocks, sizeof(Block), CHUNK_VOL, f);
+        size_t read = fread(c->blocks, sizeof(Block), CHUNK_VOL, f);
         fclose(f);
-        c->loaded = true;
-        c->dirty = true;
-        return true;
+        if (read == CHUNK_VOL) {
+            c->loaded = true;
+            c->dirty = true;
+            return true;
+        }
     }
     return false;
 }
@@ -178,8 +183,14 @@ void SavePlayer() {
 void LoadPlayer() {
     FILE *f = fopen("player.dat", "rb");
     if (f) {
-        fread(&player, sizeof(Player), 1, f);
+        size_t read = fread(&player, sizeof(Player), 1, f);
         fclose(f);
+        if (read != 1) {
+            // Reset player if load fails
+            player.pos = (Vector3){ 0, 80, 0 };
+            player.health = 3.0f;
+            player.hunger = 10.0f;
+        }
     }
 }
 
@@ -510,6 +521,80 @@ void DrawHUD() {
     }
 }
 
+// --- Sound ---
+typedef struct {
+    Sound punch;
+    Sound place;
+    Sound bird;
+    Sound zombie;
+} GameSounds;
+GameSounds sounds;
+
+void InitSounds() {
+    InitAudioDevice();
+    
+    // Punch: Short low-frequency thud
+    Wave punchWave = { 0 };
+    punchWave.frameCount = 44100 * 0.1;
+    punchWave.sampleRate = 44100;
+    punchWave.sampleSize = 16;
+    punchWave.channels = 1;
+    punchWave.data = malloc(punchWave.frameCount * sizeof(short));
+    short *punchData = (short *)punchWave.data;
+    for (int i = 0; i < punchWave.frameCount; i++) {
+        float t = (float)i / punchWave.frameCount;
+        punchData[i] = (short)(sinf(2.0f * PI * 80.0f * (1.0f - t) * i / 44100.0f) * 32767.0f * (1.0f - t));
+    }
+    sounds.punch = LoadSoundFromWave(punchWave);
+    free(punchWave.data);
+
+    // Place: Mid-frequency short click
+    Wave placeWave = { 0 };
+    placeWave.frameCount = 44100 * 0.05;
+    placeWave.sampleRate = 44100;
+    placeWave.sampleSize = 16;
+    placeWave.channels = 1;
+    placeWave.data = malloc(placeWave.frameCount * sizeof(short));
+    short *placeData = (short *)placeWave.data;
+    for (int i = 0; i < placeWave.frameCount; i++) {
+        float t = (float)i / placeWave.frameCount;
+        placeData[i] = (short)(sinf(2.0f * PI * 400.0f * i / 44100.0f) * 32767.0f * (1.0f - t));
+    }
+    sounds.place = LoadSoundFromWave(placeWave);
+    free(placeWave.data);
+
+    // Bird: High-pitched chirp
+    Wave birdWave = { 0 };
+    birdWave.frameCount = 44100 * 0.2;
+    birdWave.sampleRate = 44100;
+    birdWave.sampleSize = 16;
+    birdWave.channels = 1;
+    birdWave.data = malloc(birdWave.frameCount * sizeof(short));
+    short *birdData = (short *)birdWave.data;
+    for (int i = 0; i < birdWave.frameCount; i++) {
+        float t = (float)i / birdWave.frameCount;
+        birdData[i] = (short)(sinf(2.0f * PI * (1000.0f + 500.0f * sinf(10.0f * t)) * i / 44100.0f) * 16000.0f * (1.0f - t));
+    }
+    sounds.bird = LoadSoundFromWave(birdWave);
+    free(birdWave.data);
+
+    // Zombie: Low-frequency growl (noise-like)
+    Wave zombieWave = { 0 };
+    zombieWave.frameCount = 44100 * 0.5;
+    zombieWave.sampleRate = 44100;
+    zombieWave.sampleSize = 16;
+    zombieWave.channels = 1;
+    zombieWave.data = malloc(zombieWave.frameCount * sizeof(short));
+    short *zombieData = (short *)zombieWave.data;
+    for (int i = 0; i < zombieWave.frameCount; i++) {
+        float t = (float)i / zombieWave.frameCount;
+        float noise = (float)rand() / (float)RAND_MAX * 2.0f - 1.0f;
+        zombieData[i] = (short)(noise * 10000.0f * (1.0f - t) * (0.5f + 0.5f * sinf(20.0f * t)));
+    }
+    sounds.zombie = LoadSoundFromWave(zombieWave);
+    free(zombieWave.data);
+}
+
 // --- Main ---
 int main() {
     InitWindow(800, 480, "r36sCraft");
@@ -526,6 +611,7 @@ int main() {
     player.damage_timer = 0.0f;
 
     LoadPlayer();
+    InitSounds();
 
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0, 1, 0 };
@@ -592,6 +678,7 @@ int main() {
 
             // Interaction
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_2)) {
+                PlaySound(sounds.punch);
                 Vector3 rayPos = camera.position;
                 Vector3 rayDir = forward;
                 
@@ -635,6 +722,7 @@ int main() {
             
             if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
                 if (player.selected_block > 1) { // Slot 1 is Pickaxe
+                    PlaySound(sounds.place);
                     Vector3 rayPos = camera.position;
                     Vector3 rayDir = forward;
                     Vector3 prevP = rayPos;
@@ -688,6 +776,11 @@ int main() {
                         if (dist < 1.2f && player.damage_timer <= 0) {
                             player.health -= 1.0f;
                             player.damage_timer = 0.5f;
+                            PlaySound(sounds.punch); // Reuse punch sound for taking damage
+                        }
+                        // Zombie growl when near
+                        if (dist < 10.0f && GetRandomValue(0, 100) == 0) {
+                            PlaySound(sounds.zombie);
                         }
                     }
                 } else {
@@ -698,6 +791,11 @@ int main() {
             }
 
             if (player.damage_timer > 0) player.damage_timer -= dt;
+
+            // Ambient birds
+            if (GetRandomValue(0, 500) == 0) {
+                PlaySound(sounds.bird);
+            }
         }
 
         BeginDrawing();
