@@ -525,7 +525,7 @@ int main() {
                     float dist = Vector3Distance(rayPos, mobs[i].pos);
                     if (dist < 4.0f) { // Punch range
                         // Simple sphere collision for mobs
-                        if (CheckCollisionRaySphere(punchRay, mobs[i].pos, 0.8f, NULL)) {
+                        if (GetRayCollisionSphere(punchRay, mobs[i].pos, 0.8f).hit) {
                             mobs[i].active = false; // 1 hit kill
                             hitMob = true;
                             break;
