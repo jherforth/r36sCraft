@@ -112,20 +112,31 @@ float fbm2d(float x, float y, int octaves) {
 
 // --- Block Properties ---
 Color GetBlockColor(BlockType type, int face) {
+    Color base;
     switch (type) {
         case BLOCK_GRASS:
-            if (face == 2) return (Color){ 100, 200, 50, 255 }; // Top
-            if (face == 3) return (Color){ 100, 70, 40, 255 };  // Bottom
-            return (Color){ 80, 150, 40, 255 };                // Sides
-        case BLOCK_DIRT: return (Color){ 100, 70, 40, 255 };
-        case BLOCK_STONE: return (Color){ 120, 120, 120, 255 };
-        case BLOCK_WOOD: return (Color){ 80, 50, 30, 255 };
-        case BLOCK_LEAVES: return (Color){ 40, 180, 40, 180 };
-        case BLOCK_SAND: return (Color){ 220, 200, 120, 255 };
-        case BLOCK_WATER: return (Color){ 50, 100, 200, 150 };
-        case BLOCK_GLOWSTONE: return (Color){ 255, 255, 150, 255 };
-        default: return WHITE;
+            if (face == 2) base = (Color){ 100, 200, 50, 255 }; // Top
+            else if (face == 3) base = (Color){ 100, 70, 40, 255 };  // Bottom
+            else base = (Color){ 80, 150, 40, 255 };                // Sides
+            break;
+        case BLOCK_DIRT: base = (Color){ 100, 70, 40, 255 }; break;
+        case BLOCK_STONE: base = (Color){ 120, 120, 120, 255 }; break;
+        case BLOCK_WOOD: base = (Color){ 80, 50, 30, 255 }; break;
+        case BLOCK_LEAVES: base = (Color){ 40, 180, 40, 180 }; break;
+        case BLOCK_SAND: base = (Color){ 220, 200, 120, 255 }; break;
+        case BLOCK_WATER: base = (Color){ 50, 100, 200, 150 }; break;
+        case BLOCK_GLOWSTONE: base = (Color){ 255, 255, 150, 255 }; break;
+        default: base = WHITE; break;
     }
+
+    // Apply shading based on face (Top = 1.0, Sides = 0.8, Bottom = 0.6)
+    float factor = 0.8f;
+    if (face == 2) factor = 1.0f; // Top
+    if (face == 3) factor = 0.6f; // Bottom
+    
+    if (type == BLOCK_GLOWSTONE) factor = 1.0f; // Glowstone doesn't shade
+
+    return (Color){ (unsigned char)(base.r * factor), (unsigned char)(base.g * factor), (unsigned char)(base.b * factor), base.a };
 }
 
 // --- World Generation ---
@@ -315,18 +326,28 @@ void UpdatePlayer(float dt) {
     
     if (Vector3Length(move) > 0.1f) {
         move = Vector3Scale(Vector3Normalize(move), WALK_SPEED * dt);
+        
+        // X Collision (Check feet and head)
         player.pos.x += move.x;
-        if (IsBlockSolid(player.pos.x + (move.x > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS), player.pos.y, player.pos.z)) player.pos.x -= move.x;
+        if (IsBlockSolid(player.pos.x + (move.x > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS), player.pos.y, player.pos.z) ||
+            IsBlockSolid(player.pos.x + (move.x > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS), player.pos.y + 1.0f, player.pos.z)) {
+            player.pos.x -= move.x;
+        }
+        
+        // Z Collision
         player.pos.z += move.z;
-        if (IsBlockSolid(player.pos.x, player.pos.y, player.pos.z + (move.z > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS))) player.pos.z -= move.z;
+        if (IsBlockSolid(player.pos.x, player.pos.y, player.pos.z + (move.z > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS)) ||
+            IsBlockSolid(player.pos.x, player.pos.y + 1.0f, player.pos.z + (move.z > 0 ? PLAYER_RADIUS : -PLAYER_RADIUS))) {
+            player.pos.z -= move.z;
+        }
     }
 
     // --- Gravity & Jumping ---
     player.vel.y += GRAVITY * dt;
     player.pos.y += player.vel.y * dt;
     
-    if (IsBlockSolid(player.pos.x, player.pos.y - 0.1f, player.pos.z)) {
-        player.pos.y = floorf(player.pos.y) + 0.1f;
+    if (IsBlockSolid(player.pos.x, player.pos.y, player.pos.z)) {
+        player.pos.y = floorf(player.pos.y) + 1.0f;
         player.vel.y = 0;
         player.grounded = true;
     } else {
@@ -335,6 +356,7 @@ void UpdatePlayer(float dt) {
 
     if (player.grounded && (IsKeyPressed(KEY_SPACE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))) {
         player.vel.y = JUMP_FORCE;
+        player.grounded = false;
     }
 
     // --- Block Selection ---
@@ -355,6 +377,49 @@ void UpdatePlayer(float dt) {
     }
 }
 
+// --- HUD ---
+void DrawHUD() {
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+
+    // Crosshair
+    DrawRectangle(sw / 2 - 10, sh / 2 - 1, 20, 2, WHITE);
+    DrawRectangle(sw / 2 - 1, sh / 2 - 10, 2, 20, WHITE);
+
+    // Hotbar
+    int slotSize = 40;
+    int barWidth = slotSize * 9;
+    int startX = sw / 2 - barWidth / 2;
+    int startY = sh - slotSize - 10;
+
+    DrawRectangle(startX - 5, startY - 5, barWidth + 10, slotSize + 10, (Color){ 0, 0, 0, 150 });
+
+    const char* slotNames[] = { "Pick", "Grass", "Dirt", "Stone", "Wood", "Leaf", "Sand", "Water", "Glow" };
+    BlockType slotBlocks[] = { BLOCK_AIR, BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_WOOD, BLOCK_LEAVES, BLOCK_SAND, BLOCK_WATER, BLOCK_GLOWSTONE };
+
+    for (int i = 0; i < 9; i++) {
+        int x = startX + i * slotSize;
+        DrawRectangleLines(x, startY, slotSize, slotSize, (i + 1 == player.selected_block) ? YELLOW : GRAY);
+        
+        if (i == 0) {
+            // Pickaxe icon
+            DrawRectangle(x + 10, startY + 10, 20, 5, GRAY);
+            DrawRectangle(x + 18, startY + 15, 4, 15, BROWN);
+        } else {
+            DrawRectangle(x + 5, startY + 5, slotSize - 10, slotSize - 10, GetBlockColor(slotBlocks[i], 2));
+        }
+        
+        DrawText(slotNames[i], x + 2, startY + slotSize - 10, 10, WHITE);
+    }
+
+    // Health & Hunger
+    for (int i = 0; i < 3; i++) {
+        DrawText("♥", 20 + i * 25, sh - 60, 30, (i < player.health) ? RED : DARKGRAY);
+    }
+    DrawRectangle(20, sh - 30, 100, 10, DARKGRAY);
+    DrawRectangle(20, sh - 30, (int)player.hunger * 10, 10, ORANGE);
+}
+
 // --- Main ---
 int main() {
     InitWindow(800, 480, "r36sCraft");
@@ -371,6 +436,9 @@ int main() {
     camera.up = (Vector3){ 0, 1, 0 };
     camera.fovy = 60.0f;
     camera.projection = CAMERA_PERSPECTIVE;
+
+    srand(time(NULL));
+    world_seed = rand();
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -442,26 +510,28 @@ int main() {
         }
         
         if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_2)) {
-            Vector3 rayPos = camera.position;
-            Vector3 rayDir = forward;
-            Vector3 prevP = rayPos;
-            for(float d=0; d<5.0f; d+=0.1f) {
-                Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
-                int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
-                if (IsBlockSolid(ix, iy, iz)) {
-                    int px = floorf(prevP.x), py = floorf(prevP.y), pz = floorf(prevP.z);
-                    int cx = floorf((float)px / CHUNK_X);
-                    int cz = floorf((float)pz / CHUNK_Z);
-                    for(int i=0; i<MAX_CHUNKS; i++) {
-                        if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
-                            chunks[i].blocks[(px - cx*CHUNK_X) + (pz - cz*CHUNK_Z)*CHUNK_X + py*CHUNK_X*CHUNK_Z].type = player.selected_block;
-                            chunks[i].dirty = true;
-                            break;
+            if (player.selected_block > 1) { // Slot 1 is Pickaxe
+                Vector3 rayPos = camera.position;
+                Vector3 rayDir = forward;
+                Vector3 prevP = rayPos;
+                for(float d=0; d<5.0f; d+=0.1f) {
+                    Vector3 p = Vector3Add(rayPos, Vector3Scale(rayDir, d));
+                    int ix = floorf(p.x), iy = floorf(p.y), iz = floorf(p.z);
+                    if (IsBlockSolid(ix, iy, iz)) {
+                        int px = floorf(prevP.x), py = floorf(prevP.y), pz = floorf(prevP.z);
+                        int cx = floorf((float)px / CHUNK_X);
+                        int cz = floorf((float)pz / CHUNK_Z);
+                        for(int i=0; i<MAX_CHUNKS; i++) {
+                            if (chunks[i].loaded && chunks[i].x == cx && chunks[i].z == cz) {
+                                chunks[i].blocks[(px - cx*CHUNK_X) + (pz - cz*CHUNK_Z)*CHUNK_X + py*CHUNK_X*CHUNK_Z].type = player.selected_block;
+                                chunks[i].dirty = true;
+                                break;
+                            }
                         }
+                        break;
                     }
-                    break;
+                    prevP = p;
                 }
-                prevP = p;
             }
         }
 
@@ -505,24 +575,32 @@ int main() {
                     }
                 }
                 
+                // Selection Box
+                for(float d=0; d<5.0f; d+=0.1f) {
+                    Vector3 p = Vector3Add(camera.position, Vector3Scale(forward, d));
+                    if (IsBlockSolid(floorf(p.x), floorf(p.y), floorf(p.z))) {
+                        DrawCubeWires((Vector3){floorf(p.x) + 0.5f, floorf(p.y) + 0.5f, floorf(p.z) + 0.5f}, 1.01f, 1.01f, 1.01f, BLACK);
+                        break;
+                    }
+                }
+
                 // Draw Mobs
                 for (int i = 0; i < 32; i++) {
-                    if (mobs[i].active) {
-                        Color c = (mobs[i].type == MOB_CHICKEN) ? WHITE : DARKGREEN;
-                        DrawCube(mobs[i].pos, 0.8f, 0.8f, 0.8f, c);
-                        DrawCubeWires(mobs[i].pos, 0.8f, 0.8f, 0.8f, BLACK);
+                    if (!mobs[i].active) continue;
+                    if (mobs[i].type == MOB_CHICKEN) {
+                        DrawCube(mobs[i].pos, 0.4f, 0.4f, 0.6f, WHITE);
+                        DrawCube((Vector3){mobs[i].pos.x, mobs[i].pos.y + 0.3f, mobs[i].pos.z + 0.2f}, 0.2f, 0.3f, 0.2f, WHITE);
+                        DrawCube((Vector3){mobs[i].pos.x, mobs[i].pos.y + 0.3f, mobs[i].pos.z + 0.35f}, 0.1f, 0.05f, 0.1f, ORANGE);
+                    } else {
+                        DrawCube(mobs[i].pos, 0.6f, 0.8f, 0.3f, DARKGREEN);
+                        DrawCube((Vector3){mobs[i].pos.x, mobs[i].pos.y + 0.7f, mobs[i].pos.z}, 0.4f, 0.4f, 0.4f, GREEN);
+                        DrawCube((Vector3){mobs[i].pos.x, mobs[i].pos.y + 0.2f, mobs[i].pos.z + 0.4f}, 0.2f, 0.2f, 0.6f, GREEN);
                     }
                 }
             EndMode3D();
 
-            // UI
-            DrawRectangle(10, 10, 200, 60, Fade(BLACK, 0.5f));
-            DrawText(TextFormat("Health: %.1f", player.health), 20, 20, 20, RED);
-            DrawText(TextFormat("Hunger: %.1f", player.hunger), 20, 40, 20, ORANGE);
-            
-            DrawRectangle(GetScreenWidth()/2 - 5, GetScreenHeight()/2 - 5, 10, 10, Fade(WHITE, 0.5f));
-            
-            DrawText("1-9: Select Block | WASD: Move | Space: Jump | LMB: Break", 10, GetScreenHeight() - 30, 20, WHITE);
+            DrawHUD();
+            DrawFPS(10, 10);
         EndDrawing();
     }
 
