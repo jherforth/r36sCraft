@@ -532,7 +532,7 @@ typedef struct {
     Sound place;
     Sound bird;
     Sound zombie;
-    Music ambient;
+    Sound ambient;
 } GameSounds;
 GameSounds sounds;
 
@@ -623,13 +623,10 @@ void InitSounds() {
         musicData[i] = (short)(sample * 1000.0f); // Very quiet
     }
     
-    // Create a temporary file to load as music (raylib doesn't have LoadMusicFromWave directly in all versions)
-    // Actually, we can just use LoadSoundFromWave and loop it, or use a stream.
-    // Let's use a Sound and loop it for simplicity.
-    sounds.ambient = LoadMusicFromWave(musicWave);
-    sounds.ambient.looping = true;
-    PlayMusicStream(sounds.ambient);
-    SetMusicVolume(sounds.ambient, 0.2f);
+    // Create a Sound from the wave and play it
+    sounds.ambient = LoadSoundFromWave(musicWave);
+    SetSoundVolume(sounds.ambient, 0.2f);
+    PlaySound(sounds.ambient);
     free(musicWave.data);
 }
 
@@ -660,7 +657,7 @@ int main() {
     world_seed = rand();
 
     while (!WindowShouldClose()) {
-        UpdateMusicStream(sounds.ambient);
+        if (!IsSoundPlaying(sounds.ambient)) PlaySound(sounds.ambient);
         if (IsKeyPressed(KEY_ESCAPE) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)) {
             isPaused = !isPaused;
             if (isPaused) EnableCursor();
